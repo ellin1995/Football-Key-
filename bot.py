@@ -28,6 +28,7 @@ from dotenv import load_dotenv
 # استدعاء مكتبة التليجرام
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 from telegram.constants import ParseMode
+from telegram.request import HTTPXRequest
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -69,7 +70,7 @@ logger = logging.getLogger("FootballBot")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "9154832991:AAFn34ZAsOjkEhrRbnsKxfERbRLoC3fWdNw")
 FOOTBALL_API_KEY = os.getenv("FOOTBALL_API_KEY", "05f1e429a91687bfe744f0910f408a59")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-CHANNEL_URL = os.getenv("CHANNEL_URL", "https://t.me/StreamVaultLiveBot")
+CHANNEL_URL = os.getenv("CHANNEL_URL", "https://t.me/alifootbaal95")
 
 # معرّف إعلانات Adsgram
 ADSGRAM_BLOCK_ID = os.getenv("ADSGRAM_BLOCK_ID", "55679")
@@ -835,8 +836,20 @@ def main():
     server_thread = threading.Thread(target=start_render_web_server, daemon=True)
     server_thread.start()
 
-    # 2. بناء تطبيق التليجرام مع ربط post_init
-    telegram_app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).post_init(post_init).build()
+    # 2. بناء تطبيق التليجرام مع ربط المهلة الزمنية وإعادة المحاولة التلقائية
+    request_config = HTTPXRequest(
+        connect_timeout=25.0,
+        read_timeout=25.0,
+        write_timeout=25.0,
+        pool_timeout=25.0
+    )
+    telegram_app = (
+        ApplicationBuilder()
+        .token(TELEGRAM_BOT_TOKEN)
+        .request(request_config)
+        .post_init(post_init)
+        .build()
+    )
 
     # 3. تسجيل المعالجات
     telegram_app.add_handler(CommandHandler("start", start_command))
@@ -844,7 +857,7 @@ def main():
     telegram_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_text_message))
 
     logger.info("Bot is running and ready for users...")
-    telegram_app.run_polling()
+    telegram_app.run_polling(drop_pending_updates=True, bootstrap_retries=10)
 
 if __name__ == "__main__":
     main()
