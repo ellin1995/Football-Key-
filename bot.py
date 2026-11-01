@@ -1,10 +1,20 @@
 """
 Telegram Football Betting & Prediction Bot
 مطور بتقنيات: Python, python-telegram-bot, API-Football (Real Data), Adsgram (55679), Supabase, Render Hosting
+Bot Username: @matchpredictor_dz_bot
 """
 
 import os
 import sys
+
+# معالجة ترميز النصوص على نظام Windows لدعم اللغة العربية والإيموجي دون أخطاء
+if sys.platform.startswith("win"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 import json
 import logging
 import threading
@@ -34,18 +44,14 @@ except ImportError:
     Client = None
     create_client = None
 
-# استدعاء Gemini (دعم Google GenAI الحديث والتوافقية مع المكتبة القديمة)
+# استدعاء Gemini (دعم Google GenAI الحديث)
 GEMINI_CLIENT_TYPE = None
 try:
     from google import genai
     from google.genai import types
     GEMINI_CLIENT_TYPE = "new"
 except ImportError:
-    try:
-        import google.generativeai as legacy_genai
-        GEMINI_CLIENT_TYPE = "legacy"
-    except ImportError:
-        GEMINI_CLIENT_TYPE = None
+    GEMINI_CLIENT_TYPE = None
 
 # تحميل المتغيرات البيئية من ملف .env
 load_dotenv()
@@ -89,20 +95,12 @@ if SUPABASE_URL and SUPABASE_KEY and create_client:
 
 # تهيئة عميل Gemini
 gemini_client = None
-if GEMINI_API_KEY:
-    if GEMINI_CLIENT_TYPE == "new":
-        try:
-            gemini_client = genai.Client(api_key=GEMINI_API_KEY)
-            logger.info("تم تفعيل google-genai بنجاح.")
-        except Exception as e:
-            logger.error(f"خطأ أثناء تهيئة google-genai: {e}")
-    elif GEMINI_CLIENT_TYPE == "legacy":
-        try:
-            legacy_genai.configure(api_key=GEMINI_API_KEY)
-            gemini_client = legacy_genai.GenerativeModel("gemini-1.5-flash")
-            logger.info("تم تفعيل google-generativeai بنجاح.")
-        except Exception as e:
-            logger.error(f"خطأ أثناء تهيئة google-generativeai: {e}")
+if GEMINI_API_KEY and GEMINI_CLIENT_TYPE == "new":
+    try:
+        gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+        logger.info("تم تفعيل google-genai بنجاح.")
+    except Exception as e:
+        logger.error(f"خطأ أثناء تهيئة google-genai: {e}")
 
 # =========================================================================
 # صفحة الويب المصغرة لإعلانات Adsgram وخادم Render
@@ -303,7 +301,6 @@ HTML_ADSGRAM_PAGE = """<!DOCTYPE html>
             });
         }
 
-        // تشغيل الإعلان تلقائياً بعد نصف ثانية من فتح الصفحة
         setTimeout(() => {
             triggerAd();
         }, 500);
@@ -317,7 +314,6 @@ class RenderAndAdsServer(BaseHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
 
-        # 1. فحص الصحة لـ Render
         if path in ["/", "/health", "/status"]:
             self.send_response(200)
             self.send_header("Content-type", "text/html; charset=utf-8")
@@ -325,7 +321,7 @@ class RenderAndAdsServer(BaseHTTPRequestHandler):
             html = """
             <html>
                 <body style="font-family: Arial; text-align: center; padding: 50px; background: #0f172a; color: white;">
-                    <h1 style="color: #22c55e;">⚽ Football Betting Bot & Adsgram (55679) Active</h1>
+                    <h1 style="color: #22c55e;">Football Betting Bot & Adsgram (55679) Active</h1>
                     <p>Status: Healthy & Online</p>
                 </body>
             </html>
@@ -333,7 +329,6 @@ class RenderAndAdsServer(BaseHTTPRequestHandler):
             self.wfile.write(html.encode("utf-8"))
             return
 
-        # 2. صفحة تشغيل إعلان Adsgram لفتح المباراة
         if path == "/ad":
             self.send_response(200)
             self.send_header("Content-type", "text/html; charset=utf-8")
@@ -358,10 +353,9 @@ class RenderAndAdsServer(BaseHTTPRequestHandler):
                 league = data.get("league", "")
                 username = data.get("username", "")
 
-                logger.info(f"تم استقبال إشعار مشاهدة إعلان Adsgram للمستخدم: {user_id} لمباراة: {home} vs {away}")
+                logger.info(f"Adsgram Reward confirmed for user {user_id}: {home} vs {away}")
 
                 if user_id and telegram_app and main_async_loop:
-                    # جدولة إرسال التحليل إلى تليجرام في الـ loop الرئيسي
                     asyncio.run_coroutine_threadsafe(
                         send_prediction_to_user(
                             user_id=int(user_id),
@@ -380,7 +374,7 @@ class RenderAndAdsServer(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(b'{"status": "ok", "reward_granted": true}')
             except Exception as e:
-                logger.error(f"خطأ في معالجة مكافأة الإعلان: {e}")
+                logger.error(f"Error handling ad reward: {e}")
                 self.send_response(500)
                 self.end_headers()
             return
@@ -389,17 +383,16 @@ class RenderAndAdsServer(BaseHTTPRequestHandler):
         self.end_headers()
 
     def log_message(self, format, *args):
-        # تقليل رسائل السجلات الروتينية
         return
 
 def start_render_web_server():
     port = int(os.environ.get("PORT", 10000))
     server = HTTPServer(("0.0.0.0", port), RenderAndAdsServer)
-    logger.info(f"تم تشغيل خادم الويب وخدمة Adsgram على المنفذ {port}.")
+    logger.info(f"Render web server started on port {port}.")
     server.serve_forever()
 
 # =========================================================================
-# جلب بيانات المباريات الحقيقية من API-Sports (Real Data 100%)
+# جلب بيانات المباريات الحقيقية من API-Sports
 # =========================================================================
 
 MAJOR_LEAGUES = {
@@ -413,7 +406,6 @@ MAJOR_LEAGUES = {
 }
 
 def get_real_today_matches():
-    """الاتصال بـ API-Sports لجلب جميع مباريات اليوم الحقيقية بدون أي عشوائية"""
     today_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     url = f"https://v3.football.api-sports.io/fixtures?date={today_str}"
     headers = {"x-apisports-key": FOOTBALL_API_KEY}
@@ -466,12 +458,11 @@ def get_real_today_matches():
                     })
 
     except Exception as e:
-        logger.error(f"خطأ في الاتصال بـ API-Sports: {e}")
+        logger.error(f"Error fetching matches from API-Sports: {e}")
 
     return matches_list, today_str
 
 def get_real_fixture_prediction(fixture_id: int):
-    """جلب الإحصائيات الحقيقية والحسابات الرياضية للمباراة من API-Sports"""
     url = f"https://v3.football.api-sports.io/predictions?fixture={fixture_id}"
     headers = {"x-apisports-key": FOOTBALL_API_KEY}
     try:
@@ -481,14 +472,13 @@ def get_real_fixture_prediction(fixture_id: int):
             if data.get("response"):
                 return data["response"][0]
     except Exception as e:
-        logger.error(f"خطأ في جلب بيانات التحليل للمباراة {fixture_id}: {e}")
+        logger.error(f"Error fetching prediction for {fixture_id}: {e}")
     return None
 
 # =========================================================================
 # التحليل وتوليد تقرير الرهانات
 # =========================================================================
 def generate_ai_analysis_report(home: str, away: str, league: str, pred_data: dict = None) -> str:
-    """توليد التقرير التحليلي النهائي بدقة 100% اعتماداً على بيانات الـ API المباشرة"""
     percent_home = "40%"
     percent_draw = "30%"
     percent_away = "30%"
@@ -523,19 +513,14 @@ def generate_ai_analysis_report(home: str, away: str, league: str, pred_data: di
 4. 💡 مفتاح الفوز في سطرين
 """
         try:
-            if GEMINI_CLIENT_TYPE == "new":
-                resp = gemini_client.models.generate_content(
-                    model="gemini-2.5-flash",
-                    contents=prompt
-                )
-                if resp.text:
-                    return resp.text
-            elif GEMINI_CLIENT_TYPE == "legacy":
-                resp = gemini_client.generate_content(prompt)
-                if resp.text:
-                    return resp.text
+            resp = gemini_client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=prompt
+            )
+            if resp.text:
+                return resp.text
         except Exception as e:
-            logger.warning(f"استجابة Gemini غير متاحة، الاعتماد على خوارزميات الـ API المباشرة: {e}")
+            logger.warning(f"Gemini fallback to algorithm: {e}")
 
     return f"""
 📊 <b>تحليل وتوقعات المباراة الحقيقية:</b>
@@ -549,7 +534,7 @@ def generate_ai_analysis_report(home: str, away: str, league: str, pred_data: di
 • ✈️ فوز {away}: <b>{percent_away}</b>
 
 ⚽ <b>النتيجة الدقيقة المتوقعة:</b>
-🎯 الأقرب رقمياً وفق الأداء الأخير ومعدل التهديف: <b>{home} (1 - 1) أو (2 - 1) {away}</b>
+🎯 الأقرب رقمياً وفق الأداء ومعدل التهديف: <b>{home} (1 - 1) أو (2 - 1) {away}</b>
 
 🎯 <b>أفضل مقترحات الرهانات الذكية (Smart Value Bets):</b>
 • 💡 <b>توصية الخوارزمية:</b> <code>{advice}</code>
@@ -576,18 +561,17 @@ async def save_to_supabase(user_id: int, username: str, user_message: str, bot_r
                 "bot_reply": bot_reply[:2500] if bot_reply else ""
             }
             supabase_client.table("predictions").insert(record).execute()
-            logger.info(f"تم حفظ التوقع للمستخدم {user_id} في Supabase.")
+            logger.info(f"Prediction saved to Supabase for {user_id}")
         except Exception as ex:
-            logger.error(f"خطأ أثناء الإدخال في Supabase: {ex}")
+            logger.error(f"Supabase insert error: {ex}")
 
     loop = asyncio.get_running_loop()
     await loop.run_in_executor(None, _insert)
 
 # =========================================================================
-# إرسال التحليل للمستخدم (يتم استدعاؤها بعد مشاهدة إعلان Adsgram أو مباشرة)
+# إرسال التحليل للمستخدم
 # =========================================================================
 async def send_prediction_to_user(user_id: int, username: str, fixture_id: int, home: str, away: str, league: str, watched_ad: bool = True):
-    """إرسال التقرير التحليلي النهائي بعد مشاهدة الإعلان إلى تليجرام"""
     try:
         loop = asyncio.get_running_loop()
         pred_data = await loop.run_in_executor(None, get_real_fixture_prediction, fixture_id) if fixture_id else None
@@ -626,22 +610,20 @@ async def send_prediction_to_user(user_id: int, username: str, fixture_id: int, 
                 parse_mode=ParseMode.HTML
             )
 
-        # حفظ السجل في Supabase
         await save_to_supabase(
             user_id=user_id,
             username=username,
-            user_message=f"Fixture {fixture_id}: {home} vs {away} (Adsgram Ad: {watched_ad})",
+            user_message=f"Fixture {fixture_id}: {home} vs {away} (Ad: {watched_ad})",
             bot_reply=final_msg
         )
     except Exception as e:
-        logger.error(f"خطأ أثناء إرسال التحليل للمستخدم {user_id}: {e}")
+        logger.error(f"Error sending prediction to {user_id}: {e}")
 
 # =========================================================================
 # أزرار المباريات وقوائم التحكم
 # =========================================================================
 
 def build_fixtures_keyboard(matches):
-    """إنشاء أزرار المباريات الحقيقية"""
     keyboard = []
     
     for m in matches[:15]:
@@ -657,10 +639,8 @@ def build_fixtures_keyboard(matches):
     return InlineKeyboardMarkup(keyboard)
 
 def build_ad_gate_keyboard(fixture_id, home, away, league, user_id):
-    """إنشاء زر فتح التحليل عبر مشاهدة إعلان Adsgram 55679"""
     buttons = []
 
-    # إذا توفر رابط الاستضافة أو Render يتم إنشاء زر Telegram WebApp مخصص
     base = BASE_URL.rstrip("/") if BASE_URL else ""
     ad_url = f"{base}/ad?fixture_id={fixture_id}&home={urllib.parse.quote(home)}&away={urllib.parse.quote(away)}&league={urllib.parse.quote(league)}&user_id={user_id}"
 
@@ -672,7 +652,6 @@ def build_ad_gate_keyboard(fixture_id, home, away, league, user_id):
             )
         ])
     else:
-        # إذا لم يتم تعيين رابط الاستضافة بعد (مثلاً أثناء الفحص المحلي)
         buttons.append([
             InlineKeyboardButton(
                 "🎬 فتح التحليل بمشاهدة الإعلان (Adsgram 55679)",
@@ -688,11 +667,10 @@ def build_ad_gate_keyboard(fixture_id, home, away, league, user_id):
     return InlineKeyboardMarkup(buttons)
 
 # =========================================================================
-# معالجات أوامر التليجرام (Telegram Handlers)
+# معالجات أوامر التليجرام
 # =========================================================================
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """أمر /start"""
     user = update.effective_user
 
     wait_msg = await update.message.reply_text("⏳ <i>جاري جلب جدول مباريات اليوم الرسمية...</i>", parse_mode=ParseMode.HTML)
@@ -728,7 +706,6 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(no_matches_text, reply_markup=refresh_btn, parse_mode=ParseMode.HTML)
 
 async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالجة النقر على الأزرار"""
     query = update.callback_query
     await query.answer()
 
@@ -745,7 +722,6 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             await query.message.reply_text(f"لا توجد مباريات جديدة مجدولة لتاريخ {today_str}.")
         return
 
-    # عند النقر على مباراة من القائمة -> عرض شاشة بوابة الإعلانات Adsgram
     if data.startswith("match_click:"):
         parts = data.split(":")
         fixture_id = int(parts[1])
@@ -762,7 +738,6 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         await query.message.reply_text(gate_text, reply_markup=markup, parse_mode=ParseMode.HTML)
         return
 
-    # في حال الفتح عبر callback الإعلان أو الفتح الفوري
     if data.startswith("unlock_ad:") or data.startswith("direct_unlock:"):
         is_ad = data.startswith("unlock_ad:")
         parts = data.split(":")
@@ -791,7 +766,6 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             pass
 
 async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالجة كتابة أي اسم مباراة نصياً"""
     user_text = update.message.text.strip()
     user = update.effective_user
 
@@ -843,31 +817,33 @@ async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     )
 
 # =========================================================================
-# تشغيل البوت (Main Entry Point)
+# تشغيل البوت
 # =========================================================================
+async def post_init(application):
+    global main_async_loop
+    main_async_loop = asyncio.get_running_loop()
+    logger.info("Main asyncio loop captured successfully in post_init.")
+
 def main():
-    global telegram_app, main_async_loop
+    global telegram_app
 
     print("=" * 65)
-    print(f"⚽ بدء تشغيل البوت مع إعلانات Adsgram (Block ID: {ADSGRAM_BLOCK_ID})...")
+    print(f"Starting Football Bot with Adsgram (Block ID: {ADSGRAM_BLOCK_ID})...")
     print("=" * 65)
 
     # 1. تشغيل خادم الويب وخدمة Adsgram على المنفذ 10000
     server_thread = threading.Thread(target=start_render_web_server, daemon=True)
     server_thread.start()
 
-    # 2. بناء تطبيق التليجرام
-    telegram_app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+    # 2. بناء تطبيق التليجرام مع ربط post_init
+    telegram_app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).post_init(post_init).build()
 
     # 3. تسجيل المعالجات
     telegram_app.add_handler(CommandHandler("start", start_command))
     telegram_app.add_handler(CallbackQueryHandler(handle_callback_query))
     telegram_app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_text_message))
 
-    # التقاط الـ loop الرئيسي
-    main_async_loop = asyncio.get_event_loop()
-
-    logger.info("البوت يعمل الآن ومربوط بإعلانات Adsgram 55679...")
+    logger.info("Bot is running and ready for users...")
     telegram_app.run_polling()
 
 if __name__ == "__main__":
